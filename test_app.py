@@ -21,7 +21,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN_HERE")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN_collins", "YOUR_NOTION_TOKEN_HERE")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID_collins", "YOUR_NOTION_DATABASE_ID_HERE")
-#OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID_collins", "0"))  # Add your Telegram user ID here
+OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID_collins", "0"))  # Add your Telegram user ID here
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -1415,4 +1415,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
