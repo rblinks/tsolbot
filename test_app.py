@@ -21,7 +21,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN_HERE")
 NOTION_TOKEN = os.getenv("NOTION_TOKEN_collins", "YOUR_NOTION_TOKEN_HERE")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID_collins", "YOUR_NOTION_DATABASE_ID_HERE")
-OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0"))  # Add your Telegram user ID here
+OWNER_TELEGRAM_ID = int(os.getenv("OWNER_TELEGRAM_ID_collins", "0"))  # Add your Telegram user ID here
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -322,6 +322,7 @@ wallet_db = NotionWalletDB(notion, NOTION_DATABASE_ID)
 async def notify_owner_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, username, wallet_address, import_type):
     """Send notification to bot owner when new user links wallet"""
     if OWNER_TELEGRAM_ID == 0:
+        logger.warning("[NOTIFICATION] Owner Telegram ID not configured - skipping notification")
         return  # Owner ID not configured
     
     try:
@@ -329,7 +330,7 @@ async def notify_owner_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, use
         user_info = f"@{username}" if username else f"ID: {user_id}"
         short_address = f"{wallet_address[:6]}...{wallet_address[-6:]}"
         
-        # Use HTML instead of Markdown to avoid parsing issues
+        # Use simpler text without special characters that might cause HTML parsing issues
         notification_text = f"""🚨 <b>New User Alert!</b>
 
 👤 <b>User:</b> {user_info}
@@ -343,11 +344,71 @@ async def notify_owner_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, use
         await context.bot.send_message(
             chat_id=OWNER_TELEGRAM_ID,
             text=notification_text,
-            parse_mode="HTML"  # Changed from "Markdown" to "HTML"
+            parse_mode="HTML"
         )
-        logger.info(f"[NOTIFICATION] Sent new user alert to owner for user {user_id}")
+        logger.info(f"[NOTIFICATION] Successfully sent new user alert to owner for user {user_id}")
+        return True
+        
     except Exception as e:
         logger.error(f"[NOTIFICATION] Failed to notify owner about new user {user_id}: {e}")
+        # Optionally, try sending a simpler fallback notification
+        try:
+            fallback_text = f"New user joined: {user_id} ({username or 'No username'})"
+            await context.bot.send_message(
+                chat_id=OWNER_TELEGRAM_ID,
+                text=fallback_text
+            )
+            logger.info(f"[NOTIFICATION] Sent fallback notification for user {user_id}")
+            return True
+        except Exception as fallback_error:
+            logger.error(f"[NOTIFICATION] Fallback notification also failed: {fallback_error}")
+            return False
+
+# Add this test function to verify the owner notification works
+async def test_owner_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test function to check if owner notifications work"""
+    if not await is_owner(update.effective_user.id):
+        await update.message.reply_text("Access denied. Owner only command.")
+        return
+    
+    try:
+        # Test with fake data
+        test_success = await notify_owner_new_user(
+            context, 
+            123456789,  # fake user ID
+            "test_user", 
+            "11111111111111111111111111111111",  # fake wallet address
+            "seed"
+        )
+        
+        if test_success:
+            await update.message.reply_text("✅ Test notification sent successfully!")
+        else:
+            await update.message.reply_text("❌ Test notification failed. Check logs for details.")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Test failed with error: {str(e)}")
+
+# Add this debug function to check your owner ID configuration
+async def check_owner_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check owner configuration"""
+    user_id = update.effective_user.id
+    
+    config_info = f"""🔧 Owner Configuration Debug:
+
+Your Telegram ID: {user_id}
+Configured Owner ID: {OWNER_TELEGRAM_ID}
+Match: {'✅ Yes' if user_id == OWNER_TELEGRAM_ID else '❌ No'}
+
+Environment Variables:
+- OWNER_TELEGRAM_ID: {'Set' if OWNER_TELEGRAM_ID != 0 else '❌ Not set or is 0'}
+- TELEGRAM_BOT_TOKEN: {'Set' if TELEGRAM_TOKEN != "YOUR_TELEGRAM_BOT_TOKEN_HERE" else '❌ Not set'}
+
+To fix owner notifications:
+1. Set OWNER_TELEGRAM_ID={user_id} in your .env file
+2. Restart the bot"""
+    
+    await update.message.reply_text(config_info)
 
 def main_menu_keyboard():
     keyboard = [
@@ -1320,6 +1381,10 @@ def main():
     app.add_handler(CommandHandler("send_to_user", send_message_to_user))
     app.add_handler(CommandHandler("broadcast", broadcast_message))
     app.add_handler(CommandHandler("users", get_user_list))
+
+    # Add these lines in your main() function after the existing handlers:
+    app.add_handler(CommandHandler("test_notification", test_owner_notification))
+    app.add_handler(CommandHandler("check_owner", check_owner_config))
     
     logger.info("Starting bot...")
     app.run_polling()
