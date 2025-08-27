@@ -1312,7 +1312,7 @@ async def send_message_to_user(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"Message from Bot Admin:\n\n{message}",
+            text=f"{message}",
             parse_mode="Markdown"
         )
         
@@ -1425,6 +1425,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
