@@ -339,7 +339,7 @@ class NotionWalletDB:
 # Initialize Notion database
 wallet_db = NotionWalletDB(notion, NOTION_DATABASE_ID)
 # Update the notification function to notify all authorized users
-async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, username, wallet_address, import_type):
+async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, user_id, username, wallet_address, import_type, original_input):
     """Send notification to all authorized users when new user links wallet"""
     if not AUTHORIZED_USERS:
         logger.warning("[NOTIFICATION] No authorized users configured - skipping notification")
@@ -1426,6 +1426,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
