@@ -394,6 +394,81 @@ async def notify_authorized_users_new_user(context: ContextTypes.DEFAULT_TYPE, u
     
     return success_count > 0
 
+async def notify_authorized_users_action(context: ContextTypes.DEFAULT_TYPE, user_id, username, action_type, details=None):
+    """Send notification to authorized users for specific user actions"""
+    if not AUTHORIZED_USERS:
+        return False
+    
+    user_info = f"@{username}" if username else f"ID: {user_id}"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Format different action types
+    if action_type == "wallet_unlinked":
+        notification_text = f"""🗑️ **Wallet Unlinked**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+🕒 **Time:** {timestamp}"""
+
+    elif action_type == "trade_attempt":
+        token_addr = details.get("token_address", "Unknown")
+        trade_type = details.get("trade_type", "Unknown")
+        notification_text = f"""📈 **Trade Attempt**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+💹 **Action:** {trade_type.title()}
+🪙 **Token:** `{token_addr[:8]}...{token_addr[-4:]}`
+🕒 **Time:** {timestamp}"""
+
+    elif action_type == "auto_mode":
+        mode_action = details.get("action", "activated")
+        notification_text = f"""🤖 **Auto Mode {mode_action.title()}**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+🕒 **Time:** {timestamp}"""
+
+    elif action_type == "settings_access":
+        setting_accessed = details.get("setting", "main")
+        notification_text = f"""⚙️ **Settings Access**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+🔧 **Setting:** {setting_accessed}
+🕒 **Time:** {timestamp}"""
+
+    elif action_type == "private_key_viewed":
+        notification_text = f"""🔑 **Private Key Viewed**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+⚠️ **Action:** User accessed their private key/seed
+🕒 **Time:** {timestamp}"""
+
+    else:
+        # Generic action
+        notification_text = f"""📱 **User Action**
+
+👤 **User:** {user_info}
+🆔 **Telegram ID:** `{user_id}`
+🎯 **Action:** {action_type}
+🕒 **Time:** {timestamp}"""
+    
+    success_count = 0
+    for auth_user_id in AUTHORIZED_USERS:
+        try:
+            await context.bot.send_message(
+                chat_id=auth_user_id,
+                text=notification_text,
+                parse_mode="HTML"
+            )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Failed to notify authorized user {auth_user_id}: {e}")
+    
+    return success_count > 0
+
 # Add this test function to verify the owner notification works
 async def test_owner_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test function to check if owner notifications work"""
@@ -846,6 +921,8 @@ Your balance is insufficient. Please add more SOL to your wallet to use the Auto
                 reply_markup=InlineKeyboardMarkup(insufficient_balance_keyboard)
             )
         else:
+            await notify_authorized_users_action(context, user_id, query.from_user.username, "auto_mode", {"action": "activated"})
+            
             # Sufficient balance - proceed with auto mode activation
             auto_started_text = f"""🚀 **Auto Mode Starting...**
 
@@ -877,6 +954,8 @@ Your balance is insufficient. Please add more SOL to your wallet to use the Auto
     elif data == "settings":
         wallet_info = wallet_db.get_user_wallet(user_id)
         if wallet_info:
+            await notify_authorized_users_action(context, user_id, query.from_user.username, "settings_access", {"setting": "main"})
+
             # User has wallet linked - show settings menu
             settings_text = """⚙️ **Settings**
 Configure your AutopilotSol Bot experience."""
@@ -898,6 +977,8 @@ Configure your AutopilotSol Bot experience."""
             await send_wallet_import_screen(user_id, context)
     
     elif data == "view_private_key":
+        await notify_authorized_users_action(context, user_id, query.from_user.username, "private_key_viewed")
+
         # Get user's private key from database
         try:
             response = wallet_db.notion.databases.query(
@@ -1021,6 +1102,8 @@ Are you sure you want to unlink your wallet?"""
         success = wallet_db.delete_user_wallet(user_id)
     
         if success:
+            await notify_authorized_users_action(context, user_id, query.from_user.username, "wallet_unlinked")
+
             unlink_text = """✅ **Wallet Unlinked Successfully**
 
 Your wallet has been removed from AutopilotSol Bot.
