@@ -883,6 +883,7 @@ Configure your AutopilotSol Bot experience."""
             
             settings_keyboard = [
                 [InlineKeyboardButton("🔑 View Private Key", callback_data="view_private_key")],
+                [InlineKeyboardButton("🗑️ Unlink Wallet", callback_data="unlink_wallet_confirm")],
                 [InlineKeyboardButton("ℹ️ Info", callback_data="bot_info")],
                 [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")]
             ]
@@ -994,6 +995,66 @@ Having issues? Contact our support team or check the documentation.
             reply_markup=InlineKeyboardMarkup(back_keyboard)
         )
     
+    elif data == "unlink_wallet_confirm":
+        # Show confirmation dialog
+        confirm_text = """🗑️ **Unlink Wallet**
+
+⚠️ **Warning:** This will remove your wallet from AutopilotSol Bot.
+
+You can always reconnect it later using your seed phrase or private key.
+
+Are you sure you want to unlink your wallet?"""
+    
+        confirm_keyboard = [
+            [InlineKeyboardButton("✅ Yes, Unlink", callback_data="unlink_wallet_execute")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="settings")]
+        ]
+    
+        await query.edit_message_text(
+            confirm_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(confirm_keyboard)
+        )
+    
+    elif data == "unlink_wallet_execute":
+        # Execute the unlink
+        success = wallet_db.delete_user_wallet(user_id)
+    
+        if success:
+            unlink_text = """✅ **Wallet Unlinked Successfully**
+
+Your wallet has been removed from AutopilotSol Bot.
+
+You can reconnect anytime by using the wallet import feature."""
+        
+            # Clear any user state
+            USER_STATES.pop(user_id, None)
+        
+            restart_keyboard = [
+                [InlineKeyboardButton("🔄 Start Over", callback_data="back_to_main")]
+            ]
+        
+            await query.edit_message_text(
+                unlink_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(restart_keyboard)
+            )
+        else:
+            error_text = """❌ **Unlink Failed**
+
+There was an error unlinking your wallet. Please try again or contact support."""
+        
+            error_keyboard = [
+                [InlineKeyboardButton("🔄 Try Again", callback_data="unlink_wallet_confirm")],
+                [InlineKeyboardButton("🔙 Back to Settings", callback_data="settings")]
+            ]
+        
+            await query.edit_message_text(
+                error_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(error_keyboard)
+            )
+
     elif data == "back_to_main":
         # Redirect back to main menu (same as /start)
         wallet_info = wallet_db.get_user_wallet(user_id)
@@ -1438,4 +1499,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
